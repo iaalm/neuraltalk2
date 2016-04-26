@@ -35,9 +35,28 @@ function net_utils.build_cnn(cnn, opt)
     cnn_part:add(layer)
   end
 
-  cnn_part:add(nn.Linear(4096,encoding_size))
-  cnn_part:add(backend.ReLU(true))
   return cnn_part
+end
+
+function net_utils.InnerProductWithReLU(opt)
+  local input_num = utils.getopt(opt, 'ip_input', 4096)
+  local output_num = utils.getopt(opt, 'ip_output', 512)
+  local backend = utils.getopt(opt, 'backend', 'cudnn')
+  
+  if backend == 'cudnn' then
+    require 'cudnn'
+    backend = cudnn
+  elseif backend == 'nn' then
+    require 'nn'
+    backend = nn
+  else
+    error(string.format('Unrecognized backend "%s"', backend))
+  end
+
+  local nn_part = nn.Sequential()
+  nn_part:add(nn.Linear(input_num,output_num))
+  nn_part:add(backend.ReLU(true))
+  return nn_part
 end
 
 -- takes a batch of images and preprocesses them
