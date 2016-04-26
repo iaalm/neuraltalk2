@@ -103,6 +103,7 @@ if string.len(opt.start_from) > 0 then
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
   net_utils.unsanitize_gradients(protos.cnn)
+  net_utils.unsanitize_gradients(protos.ip)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
   protos.crit = nn.LanguageModelCriterion() -- not in checkpoints, create manually
@@ -277,9 +278,9 @@ local function lossFun()
   -- backprop language model
   local dexpanded_feats, ddummy = unpack(protos.lm:backward({expanded_feats, data.labels}, dlogprobs))
   -- backprop the CNN, but only if we are finetuning
-  if opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after then
+  if opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after or opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dencoding = protos.expander:backward(feats, dexpanded_feats)
-    local dipx = protos.cnn:backward(data.images, dencoding)
+    local dipx = protos.ip:backward(data.images, dencoding)
   end
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dx = protos.cnn:backward(data.images, dipx)
@@ -292,8 +293,10 @@ local function lossFun()
   -- apply L2 regularization
   if opt.cnn_weight_decay > 0 then
     cnn_grad_params:add(opt.cnn_weight_decay, cnn_params)
+    ip_grad_params:add(opt.cnn_weight_decay, ip_params)
     -- note: we don't bother adding the l2 loss to the total loss, meh.
     cnn_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+    ip_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
   end
   -----------------------------------------------------------------------------
 
