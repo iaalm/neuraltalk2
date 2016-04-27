@@ -278,9 +278,10 @@ local function lossFun()
   -- backprop language model
   local dexpanded_feats, ddummy = unpack(protos.lm:backward({expanded_feats, data.labels}, dlogprobs))
   -- backprop the CNN, but only if we are finetuning
-  if opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after or opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
+  local dfeats;
+  if (opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after) or (opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after) then
     local dencoding = protos.expander:backward(cnn_encoding, dexpanded_feats)
-    local dfeats = protos.ip:backward(feats, dencoding)
+    dfeats = protos.ip:backward(feats, dencoding)
   end
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dx = protos.cnn:backward(data.images, dfeats)
