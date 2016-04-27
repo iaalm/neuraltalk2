@@ -279,11 +279,11 @@ local function lossFun()
   local dexpanded_feats, ddummy = unpack(protos.lm:backward({expanded_feats, data.labels}, dlogprobs))
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after or opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
-    local dencoding = protos.expander:backward(feats, dexpanded_feats)
-    local dipx = protos.ip:backward(data.images, dencoding)
+    local dencoding = protos.expander:backward(cnn_encoding, dexpanded_feats)
+    local dfeats = protos.ip:backward(feats, dencoding)
   end
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
-    local dx = protos.cnn:backward(data.images, dipx)
+    local dx = protos.cnn:backward(data.images, dfeats)
   end
 
   -- clip gradients
@@ -311,6 +311,7 @@ end
 local loss0
 local optim_state = {}
 local cnn_optim_state = {}
+local ip_optim_state = {}
 local loss_history = {}
 local val_lang_stats_history = {}
 local val_loss_history = {}
@@ -404,11 +405,11 @@ while true do
 
   -- do a cnn update (if finetuning, and if rnn above us is not warming up right now)
   if opt.finetune_ip_after >= 0 and iter >= opt.finetune_ip_after then
-    if opt.ip_optim == 'sgd' then
+    if opt.cnn_optim == 'sgd' then
       sgd(ip_params, ip_grad_params, cnn_learning_rate)
-    elseif opt.ip_optim == 'sgdm' then
+    elseif opt.cnn_optim == 'sgdm' then
       sgdm(ip_params, ip_grad_params, cnn_learning_rate, opt.cnn_optim_alpha, cnn_optim_state)
-    elseif opt.ip_optim == 'adam' then
+    elseif opt.cnn_optim == 'adam' then
       adam(ip_params, ip_grad_params, cnn_learning_rate, opt.cnn_optim_alpha, opt.cnn_optim_beta, opt.optim_epsilon, ip_optim_state)
     else
       error('bad option for opt.ip_optim')
