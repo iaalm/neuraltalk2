@@ -118,7 +118,10 @@ else
   -- initialize the ConvNet
   local cnn_backend = opt.backend
   if opt.gpuid == -1 then cnn_backend = 'nn' end -- override to nn if gpu is disabled
-  local cnn_raw = loadcaffe.load(opt.cnn_proto, opt.cnn_model, cnn_backend)
+  --local cnn_raw = loadcaffe.load(opt.cnn_proto, opt.cnn_model, cnn_backend)
+  googlenet = dofile('googlenet.lua')
+  local cnn_raw = googlenet({cudnn.SpatialConvolution, cudnn.SpatialMaxPooling, cudnn.ReLU, cudnn.SpatialCrossMapLRN})
+  print(cnn_raw)
   protos.cnn = net_utils.build_cnn(cnn_raw, {encoding_size = opt.input_encoding_size, backend = cnn_backend})
   -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy 
   -- where we have multiple captions per one image in a batch. This is done for efficiency
