@@ -150,7 +150,7 @@ def encode_captions(imgs, params, wtoi):
   assert np.all(label_length > 0), 'error: some caption had no words?'
 
   print 'encoded captions to array of size ', `L.shape`
-  return L, label_start_ix, label_end_ix, label_length, n_frame, image_start_ix, image_end_ix
+  return L, label_start_ix, label_end_ix, label_length, image_counter, image_start_ix, image_end_ix
 
 def main(params):
 
@@ -180,7 +180,8 @@ def main(params):
     img['split'] = video_info[img['video_id']]['split']
   
   # encode captions in large arrays, ready to ship to hdf5 file
-  L, label_start_ix, label_end_ix, label_length, N, image_start_ix, image_end_ix = encode_captions(imgs, params, wtoi)
+  L, label_start_ix, label_end_ix, label_length, n_frame, image_start_ix, image_end_ix = encode_captions(imgs, params, wtoi)
+  N = len(imgs)
 
   # create output h5 file
   f = h5py.File(params['output_h5'], "w")
@@ -188,7 +189,7 @@ def main(params):
   f.create_dataset("label_start_ix", dtype='uint32', data=label_start_ix)
   f.create_dataset("label_end_ix", dtype='uint32', data=label_end_ix)
   f.create_dataset("label_length", dtype='uint32', data=label_length)
-  dset = f.create_dataset("images", (N,3,256,256), dtype='uint8') # space for resized images
+  dset = f.create_dataset("images", (n_frame,3,256,256), dtype='uint8') # space for resized images
   f.create_dataset("image_start_ix", dtype='uint32', data=image_start_ix)
   f.create_dataset("image_end_ix", dtype='uint32', data=image_end_ix)
   count = 0
