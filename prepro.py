@@ -33,6 +33,7 @@ import h5py
 import numpy as np
 from scipy.misc import imread, imresize
 import re
+import imageio
 
 def prepro_captions(imgs):
   
@@ -95,22 +96,6 @@ def build_vocab(imgs, params):
 
   return vocab
 
-def assign_splits(imgs, params):
-  rrr = re.compile(r'COCO_(\w+)2014_\d+\.jpg')
-  num_val = params['num_val']
-  num_test = params['num_test']
-
-  for i,img in enumerate(imgs):
-       img['split'] = rrr.findall(img['file_path'])[0]
-#      if i < num_val:
-#        img['split'] = 'val'
-#      elif i < num_val + num_test: 
-#        img['split'] = 'test'
-#      else: 
-#        img['split'] = 'train'
-
-  print 'assigned %d to val, %d to test.' % (num_val, num_test)
-
 def encode_captions(imgs, params, wtoi):
   """ 
   encode all captions into one large array, which will be 1-indexed.
@@ -127,9 +112,21 @@ def encode_captions(imgs, params, wtoi):
   label_start_ix = np.zeros(N, dtype='uint32') # note: these will be one-indexed
   label_end_ix = np.zeros(N, dtype='uint32')
   label_length = np.zeros(M, dtype='uint32')
+  image_start_ix = np.zeros(N, dtype='uint32') # note: these will be one-indexed
+  image_end_ix = np.zeros(N, dtype='uint32')
+  image_arrays = []
   caption_counter = 0
   counter = 1
+  image_counter = 1
   for i,img in enumerate(imgs):
+    filename = os.path.join(params['images_root'], img['video_id']+'.mp4')
+    reader = imageio.get_reader(filename)
+    n_frame = reader.get_length()
+    reader.close()
+    del reader
+    image_start_ix[i] = image_counter
+    image_end_ix[i] = image_counter + n_frame - 1
+    image_counter = image_counter + n_frame
     n = len(img['final_captions'])
     assert n > 0, 'error: some image has no captions'
 
@@ -153,11 +150,19 @@ def encode_captions(imgs, params, wtoi):
   assert np.all(label_length > 0), 'error: some caption had no words?'
 
   print 'encoded captions to array of size ', `L.shape`
-  return L, label_start_ix, label_end_ix, label_length
+  return L, label_start_ix, label_end_ix, label_length, n_frame, image_start_ix, image_end_ix
 
 def main(params):
 
-  imgs = json.load(open(params['input_json'], 'r'))
+  json_data = json.load(open(params['input_json'], 'r'))
+  sent = json_data['sentences']
+  imgs = {}
+  for s in sent:
+      data = imgs.get(s['video_id'],[])
+      data.append(s['caption'])
+      imgs[s['video_id']] = data
+  imgs = [{'video_id':k,'captions':imgs[k]} for k in imgs]
+
   seed(123) # make reproducible
   shuffle(imgs) # shuffle the order
 
@@ -170,36 +175,45 @@ def main(params):
   wtoi = {w:i+1 for i,w in enumerate(vocab)} # inverse table
 
   # assign the splits
-  assign_splits(imgs, params)
+  video_info = {t['video_id']:t for t in json_data['videos']}
+  for i,img in enumerate(imgs):
+    img['split'] = video_info[img['video_id']]['split']
   
   # encode captions in large arrays, ready to ship to hdf5 file
-  L, label_start_ix, label_end_ix, label_length = encode_captions(imgs, params, wtoi)
+  L, label_start_ix, label_end_ix, label_length, N, image_start_ix, image_end_ix = encode_captions(imgs, params, wtoi)
 
   # create output h5 file
-  N = len(imgs)
   f = h5py.File(params['output_h5'], "w")
   f.create_dataset("labels", dtype='uint32', data=L)
   f.create_dataset("label_start_ix", dtype='uint32', data=label_start_ix)
   f.create_dataset("label_end_ix", dtype='uint32', data=label_end_ix)
   f.create_dataset("label_length", dtype='uint32', data=label_length)
   dset = f.create_dataset("images", (N,3,256,256), dtype='uint8') # space for resized images
+  f.create_dataset("image_start_ix", dtype='uint32', data=image_start_ix)
+  f.create_dataset("image_end_ix", dtype='uint32', data=image_end_ix)
+  count = 0
   for i,img in enumerate(imgs):
     # load the image
-    I = imread(os.path.join(params['images_root'], img['file_path']))
-    try:
-        Ir = imresize(I, (256,256))
-    except:
-        print 'failed resizing image %s - see http://git.io/vBIE0' % (img['file_path'],)
-        raise
-    # handle grayscale input images
-    if len(Ir.shape) == 2:
-      Ir = Ir[:,:,np.newaxis]
-      Ir = np.concatenate((Ir,Ir,Ir), axis=2)
-    # and swap order of axes from (256,256,3) to (3,256,256)
-    Ir = Ir.transpose(2,0,1)
-    # write to h5
-    dset[i] = Ir
-    if i % 1000 == 0:
+    filename = os.path.join(params['images_root'], img['video_id']+'.mp4')
+    reader = imageio.get_reader(filename)
+    for img_ix in range(reader.get_length()):
+        I = reader.get_data(img_ix)
+        try:
+            Ir = imresize(I, (256,256))
+        except:
+            print 'failed resizing image %s - see http://git.io/vBIE0' % (img['file_path'],)
+            raise
+        # handle grayscale input images
+        if len(Ir.shape) == 2:
+          Ir = Ir[:,:,np.newaxis]
+          Ir = np.concatenate((Ir,Ir,Ir), axis=2)
+        # and swap order of axes from (256,256,3) to (3,256,256)
+        Ir = Ir.transpose(2,0,1)
+        # write to h5
+        dset[count] = Ir
+        count = count + 1
+    reader.close()
+    if i % 10 == 0:
       print 'processing %d/%d (%.2f%% done)' % (i, N, i*100.0/N)
   f.close()
   print 'wrote ', params['output_h5']
@@ -226,7 +240,6 @@ if __name__ == "__main__":
 
   # input json
   parser.add_argument('--input_json', required=True, help='input json file to process into hdf5')
-  parser.add_argument('--num_val', required=True, type=int, help='number of images to assign to validation data (for CV etc)')
   parser.add_argument('--output_json', default='data.json', help='output json file')
   parser.add_argument('--output_h5', default='data.h5', help='output h5 file')
   
@@ -234,7 +247,6 @@ if __name__ == "__main__":
   parser.add_argument('--max_length', default=16, type=int, help='max length of a caption, in number of words. captions longer than this get clipped.')
   parser.add_argument('--images_root', default='', help='root location in which images are stored, to be prepended to file_path in input json')
   parser.add_argument('--word_count_threshold', default=5, type=int, help='only words that occur more than this number of times will be put in vocab')
-  parser.add_argument('--num_test', default=0, type=int, help='number of test images (to withold until very very end)')
 
   args = parser.parse_args()
   params = vars(args) # convert to ordinary dict
