@@ -33,6 +33,8 @@ function DataLoader:__init(opt)
   -- load the pointers in full to RAM (should be small enough)
   self.label_start_ix = self.h5_file:read('/label_start_ix'):all()
   self.label_end_ix = self.h5_file:read('/label_end_ix'):all()
+  self.image_start_ix = self.h5_file:read('/image_start_ix'):all()
+  self.image_end_ix = self.h5_file:read('/image_end_ix'):all()
   
   -- separate out indexes for each of the provided splits
   self.split_ix = {}
@@ -77,27 +79,33 @@ end
 --]]
 function DataLoader:getBatch(opt)
   local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
-  local batch_size = utils.getopt(opt, 'batch_size', 5) -- how many images get returned at one time (to go through CNN)
+  local batch_size = utils.getopt(opt, 'batch_size', 1) -- how many images get returned at one time (to go through CNN)
   local seq_per_img = utils.getopt(opt, 'seq_per_img', 5) -- number of sequences to return per image
+  
+  if batch_size ~= 1 then
+    print('vgg_min only support batch_size == 1 now.')
+    os.exit(1)
+  end
+  local ri = self.iterators[split] -- get next index from iterator
+  local ix = split_ix[ri]
+  assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
+  local ri_next = ri + 1 -- increment iterator
+  if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
+  self.iterators[split] = ri_next
+  -- lots of code
+  local start_ix = self.image_start_ix[ix]
+  local end_ix = self.image_end_ix[ix]
 
   local split_ix = self.split_ix[split]
   assert(split_ix, 'split ' .. split .. ' not found.')
 
   -- pick an index of the datapoint to load next
-  local img_batch_raw = torch.ByteTensor(batch_size, 3, 256, 256)
+  local img_batch_raw = torch.ByteTensor(end_ix - start_ix, 3, 256, 256)
   local label_batch = torch.LongTensor(batch_size * seq_per_img, self.seq_length)
   local max_index = #split_ix
   local wrapped = false
   local infos = {}
-  for i=1,batch_size do
-
-    local ri = self.iterators[split] -- get next index from iterator
-    local ri_next = ri + 1 -- increment iterator
-    if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
-    self.iterators[split] = ri_next
-    ix = split_ix[ri]
-    assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
-
+  for i=start_ix,end_ix do
     -- fetch the image from h5
     local img = self.h5_file:read('/images'):partial({ix,ix},{1,self.num_channels},
                             {1,self.max_image_size},{1,self.max_image_size})

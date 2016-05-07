@@ -33,7 +33,6 @@ import h5py
 import numpy as np
 from scipy.misc import imread, imresize
 import re
-import imageio
 
 def prepro_captions(imgs):
   
@@ -118,12 +117,10 @@ def encode_captions(imgs, params, wtoi):
   caption_counter = 0
   counter = 1
   image_counter = 1
+  file_list = os.listdir(params['images_root'])
   for i,img in enumerate(imgs):
-    filename = os.path.join(params['images_root'], img['video_id']+'.mp4')
-    reader = imageio.get_reader(filename)
-    n_frame = reader.get_length()
-    reader.close()
-    del reader
+    n_frame = len([1 for s in file_list if s.find(str(img['video_id'])+'_')>=0])
+    print(str(img['video_id']),n_frame)
     image_start_ix[i] = image_counter
     image_end_ix[i] = image_counter + n_frame - 1
     image_counter = image_counter + n_frame
@@ -192,13 +189,13 @@ def main(params):
   dset = f.create_dataset("images", (n_frame,3,256,256), dtype='uint8') # space for resized images
   f.create_dataset("image_start_ix", dtype='uint32', data=image_start_ix)
   f.create_dataset("image_end_ix", dtype='uint32', data=image_end_ix)
-  count = 0
   for i,img in enumerate(imgs):
     # load the image
-    filename = os.path.join(params['images_root'], img['video_id']+'.mp4')
-    reader = imageio.get_reader(filename)
-    for img_ix in range(reader.get_length()):
-        I = reader.get_data(img_ix)
+    count = 0
+    #for I in reader.iter_data():
+    for img_ix in range(image_end_ix[i] - image_start_ix[i]):
+        filename = os.path.join(params['images_root'], img['video_id']+'_%d.jpg'%img_ix)
+        I = imread(img_ix)
         try:
             Ir = imresize(I, (256,256))
         except:
@@ -211,9 +208,8 @@ def main(params):
         # and swap order of axes from (256,256,3) to (3,256,256)
         Ir = Ir.transpose(2,0,1)
         # write to h5
-        dset[count] = Ir
+        dset[image_start_ix[i]+count] = Ir
         count = count + 1
-    reader.close()
     if i % 10 == 0:
       print 'processing %d/%d (%.2f%% done)' % (i, N, i*100.0/N)
   f.close()
