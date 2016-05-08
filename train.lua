@@ -37,7 +37,7 @@ cmd:option('-batch_size',1,'what is the batch size in number of images per batch
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 cmd:option('-drop_prob_lm', 0.5, 'strength of dropout in the Language Model RNN')
 cmd:option('-finetune_cnn_after', -1, 'After what iteration do we start finetuning the CNN? (-1 = disable; never finetune, 0 = finetune from start)')
-cmd:option('-seq_per_img',5,'number of captions to sample for each image during training. Done for efficiency since CNN forward pass is expensive. E.g. coco has 5 sents/image')
+cmd:option('-seq_per_img',20,'number of captions to sample for each image during training. Done for efficiency since CNN forward pass is expensive. E.g. coco has 5 sents/image')
 -- Optimization: for the Language Model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',4e-4,'learning rate')
@@ -54,7 +54,7 @@ cmd:option('-cnn_learning_rate',1e-5,'learning rate for the CNN')
 cmd:option('-cnn_weight_decay', 0, 'L2 weight decay just for the CNN')
 
 -- Evaluation/Checkpointing
-cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
+cmd:option('-val_images_use', 5, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 2500, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', '', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-language_eval', 0, 'Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
@@ -309,7 +309,7 @@ while true do
   if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     -- evaluate the validation performance
-    local val_loss, val_predictions, lang_stats = eval_split('val', {val_images_use = opt.val_images_use})
+    local val_loss, val_predictions, lang_stats = eval_split('validate', {val_images_use = opt.val_images_use})
     print('validation loss: ', val_loss)
     print(lang_stats)
     val_loss_history[iter] = val_loss

@@ -195,7 +195,7 @@ def main(params):
     #for I in reader.iter_data():
     for img_ix in range(image_end_ix[i] - image_start_ix[i]):
         filename = os.path.join(params['images_root'], img['video_id']+'_%d.jpg'%img_ix)
-        I = imread(img_ix)
+        I = imread(filename)
         try:
             Ir = imresize(I, (256,256))
         except:
