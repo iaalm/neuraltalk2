@@ -54,7 +54,7 @@ cmd:option('-cnn_learning_rate',1e-5,'learning rate for the CNN')
 cmd:option('-cnn_weight_decay', 0, 'L2 weight decay just for the CNN')
 
 -- Evaluation/Checkpointing
-cmd:option('-val_images_use', 5, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
+cmd:option('-val_images_use', -1, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 2500, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', '', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-language_eval', 0, 'Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
@@ -217,7 +217,7 @@ local function eval_split(split, evalopt)
 
     if loss_evals % 10 == 0 then collectgarbage() end
     if data.bounds.wrapped then break end -- the split ran out of data, lets break out
-    if n >= val_images_use then break end -- we've used enough images
+    if ix0 >= val_images_use then break end -- we've used enough images
   end
 
   local lang_stats
