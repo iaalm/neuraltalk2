@@ -1,5 +1,5 @@
 #!/bin/bash
 
 cd coco-caption
-python myeval.py $1
+python msrvtt_eval.py $1
 cd ../

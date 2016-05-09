@@ -220,11 +220,12 @@ def main(params):
   out['ix_to_word'] = itow # encode the (1-indexed) vocab
   out['images'] = []
   for i,img in enumerate(imgs):
+    print(img['video_id'])
     
     jimg = {}
     jimg['split'] = img['split']
     if 'file_path' in img: jimg['file_path'] = img['file_path'] # copy it over, might need
-    if 'id' in img: jimg['id'] = img['id'] # copy over & mantain an id, if present (e.g. coco ids, useful)
+    if 'video_id' in img: jimg['id'] = int(img['video_id'][5:]) # copy over & mantain an id, if present (e.g. coco ids, useful)
     
     out['images'].append(jimg)
   
