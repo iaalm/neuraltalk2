@@ -217,7 +217,7 @@ local function eval_split(split, evalopt)
 
     if loss_evals % 10 == 0 then collectgarbage() end
     if data.bounds.wrapped then break end -- the split ran out of data, lets break out
-    if ix0 >= val_images_use then break end -- we've used enough images
+    if ix0 >= val_images_use and val_images_use >= 0 then break end -- we've used enough images
   end
 
   local lang_stats
