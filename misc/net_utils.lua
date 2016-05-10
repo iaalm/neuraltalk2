@@ -26,8 +26,8 @@ function net_utils.build_cnn(cnn, opt)
   cnn:remove(24)
   cnn:add(nn.Linear(1024,encoding_size))
   cnn:add(backend.ReLU(True))
-  cnn_part:add(nn.Mean(1))
-  cnn_part:add(nn.Reshape(1,encoding_size))
+  cnn:add(nn.Mean(1))
+  cnn:add(nn.Reshape(1,encoding_size))
   return cnn
 end
 
