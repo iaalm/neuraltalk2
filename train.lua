@@ -37,6 +37,7 @@ cmd:option('-batch_size',1,'what is the batch size in number of images per batch
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 cmd:option('-drop_prob_lm', 0.5, 'strength of dropout in the Language Model RNN')
 cmd:option('-finetune_cnn_after', -1, 'After what iteration do we start finetuning the CNN? (-1 = disable; never finetune, 0 = finetune from start)')
+cmd:option('-finetune_mt_after', -1, 'After what iteration do we start finetuning the Multitask? (-1 = disable; never finetune, 0 = finetune from start)')
 cmd:option('-seq_per_img',20,'number of captions to sample for each image during training. Done for efficiency since CNN forward pass is expensive. E.g. coco has 5 sents/image')
 -- Optimization: for the Language Model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
@@ -66,6 +67,7 @@ cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and app
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-num_lstm', 1, 'how many LSTM layers')
+cmd:option('-mt_size', 20, 'how many LSTM layers')
 
 cmd:text()
 
@@ -98,6 +100,13 @@ local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json}
 -------------------------------------------------------------------------------
 -- Initialize the networks
 -------------------------------------------------------------------------------
+local function CategoryModel()
+  local model = nn.Sequential()
+  model:add(nn.Linear(opt.input_encoding_size,opt.mt_size))
+  model:add(nn.LogSoftMax())
+  return model
+end
+
 local protos = {}
 
 if string.len(opt.start_from) > 0 then
@@ -106,6 +115,7 @@ if string.len(opt.start_from) > 0 then
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
   net_utils.unsanitize_gradients(protos.cnn)
+  net_utils.unsanitize_gradients(protos.cate)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
   protos.crit = nn.LanguageModelCriterion() -- not in checkpoints, create manually
@@ -133,6 +143,8 @@ else
   protos.expander = nn.FeatExpander(opt.seq_per_img)
   -- criterion for the language model
   protos.crit = nn.LanguageModelCriterion()
+  protos.cate = CategoryModel()
+  protos.cate_loss = nn.ClassNLLCriterion()
 end
 
 -- ship everything to GPU, maybe
@@ -144,20 +156,25 @@ end
 -- Keep CNN params separate in case we want to try to get fancy with different optims on LM/CNN
 local params, grad_params = protos.lm:getParameters()
 local cnn_params, cnn_grad_params = protos.cnn:getParameters()
+local cparams, cgrad_params = protos.cate:getParameters()
 print('total number of parameters in LM: ', params:nElement())
 print('total number of parameters in CNN: ', cnn_params:nElement())
+print('total number of parameters in MT: ', cparams:nElement())
 assert(params:nElement() == grad_params:nElement())
 assert(cnn_params:nElement() == cnn_grad_params:nElement())
+assert(cparams:nElement() == cgrad_params:nElement())
 
 -- construct thin module clones that share parameters with the actual
 -- modules. These thin module will have no intermediates and will be used
 -- for checkpointing to write significantly smaller checkpoint files
 local thin_lm = protos.lm:clone()
+local thin_cate = protos.cate:clone()
 thin_lm.core:share(protos.lm.core, 'weight', 'bias') -- TODO: we are assuming that LM has specific members! figure out clean way to get rid of, not modular.
 thin_lm.lookup_table:share(protos.lm.lookup_table, 'weight', 'bias')
 local thin_cnn = protos.cnn:clone('weight', 'bias')
 -- sanitize all modules of gradient storage so that we dont save big checkpoints
 net_utils.sanitize_gradients(thin_cnn)
+net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
 
@@ -235,6 +252,7 @@ local iter = 0
 local function lossFun()
   protos.cnn:training()
   protos.lm:training()
+  protos.cate:training()
   grad_params:zero()
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     cnn_grad_params:zero()
@@ -257,6 +275,8 @@ local function lossFun()
   local logprobs = protos.lm:forward{expanded_feats, data.labels}
   -- forward the language model criterion
   local loss = protos.crit:forward(logprobs, data.labels)
+  local cate_res = protos.cate:forward(feats)
+  local cate_loss = protos.cate_loss:forward(cate_res, data.category)
   
   -----------------------------------------------------------------------------
   -- Backward pass
@@ -265,10 +285,15 @@ local function lossFun()
   local dlogprobs = protos.crit:backward(logprobs, data.labels)
   -- backprop language model
   local dexpanded_feats, ddummy = unpack(protos.lm:backward({expanded_feats, data.labels}, dlogprobs))
+  local dcate_loss = protos.cate_loss:backward(cate_res, data.category)
+  local dcate = protos.cate:backward(feats, dcate_loss)
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dfeats = protos.expander:backward(feats, dexpanded_feats)
     local dx = protos.cnn:backward(data.images, dfeats)
+  end
+  if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt then
+    local dx = protos.cnn:backward(data.images, dcate)
   end
 
   -- clip gradients
@@ -284,7 +309,7 @@ local function lossFun()
   -----------------------------------------------------------------------------
 
   -- and lets get out!
-  local losses = { total_loss = loss }
+  local losses = { total_loss = loss, category_loss = cate_loss }
   return losses
 end
 
@@ -303,7 +328,7 @@ while true do
   -- eval loss/gradient
   local losses = lossFun()
   if iter % opt.losses_log_every == 0 then loss_history[iter] = losses.total_loss end
-  print(string.format('iter %d: %f', iter, losses.total_loss))
+  print(string.format('iter %d: %f\t%f', iter, losses.total_loss, losses.category_loss))
 
   -- save checkpoint once in a while (or on final iteration)
   if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
@@ -345,6 +370,7 @@ while true do
         -- include the protos (which have weights) and save to file
         local save_protos = {}
         save_protos.lm = thin_lm -- these are shared clones, and point to correct param storage
+        save_protos.catem = thin_cate -- these are shared clones, and point to correct param storage
         save_protos.cnn = thin_cnn
         checkpoint.protos = save_protos
         -- also include the vocabulary mapping so that we can use the checkpoint 
