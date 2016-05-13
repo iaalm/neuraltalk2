@@ -113,6 +113,8 @@ def encode_captions(imgs, params, wtoi):
   label_length = np.zeros(M, dtype='uint32')
   image_start_ix = np.zeros(N, dtype='uint32') # note: these will be one-indexed
   image_end_ix = np.zeros(N, dtype='uint32')
+  category = np.zeros(N, dtype='uint32') # note: these will be one-indexed
+  vid = np.zeros(N, dtype='uint32') # note: these will be one-indexed
   image_arrays = []
   caption_counter = 0
   counter = 1
@@ -123,6 +125,8 @@ def encode_captions(imgs, params, wtoi):
     print(str(img['video_id']),n_frame)
     image_start_ix[i] = image_counter
     image_end_ix[i] = image_counter + n_frame - 1
+    category[i] = img['category']
+    vid[i] = img['id']
     image_counter = image_counter + n_frame
     n = len(img['final_captions'])
     assert n > 0, 'error: some image has no captions'
@@ -147,18 +151,20 @@ def encode_captions(imgs, params, wtoi):
   assert np.all(label_length > 0), 'error: some caption had no words?'
 
   print 'encoded captions to array of size ', `L.shape`
-  return L, label_start_ix, label_end_ix, label_length, image_counter, image_start_ix, image_end_ix
+  return L, label_start_ix, label_end_ix, label_length, image_counter, image_start_ix, image_end_ix, category, vid
 
 def main(params):
 
   json_data = json.load(open(params['input_json'], 'r'))
   sent = json_data['sentences']
+  v = json_data['videos']
   imgs = {}
   for s in sent:
       data = imgs.get(s['video_id'],[])
       data.append(s['caption'])
       imgs[s['video_id']] = data
-  imgs = [{'video_id':k,'captions':imgs[k]} for k in imgs]
+  imgs = [{'video_id':k,'captions':imgs[k], 'id':j['id'], 'category':j['category']} for j in v for k in imgs if j['video_id'] == k]
+  print(imgs)
 
   seed(123) # make reproducible
   shuffle(imgs) # shuffle the order
@@ -177,7 +183,7 @@ def main(params):
     img['split'] = video_info[img['video_id']]['split']
   
   # encode captions in large arrays, ready to ship to hdf5 file
-  L, label_start_ix, label_end_ix, label_length, n_frame, image_start_ix, image_end_ix = encode_captions(imgs, params, wtoi)
+  L, label_start_ix, label_end_ix, label_length, n_frame, image_start_ix, image_end_ix, category, vid = encode_captions(imgs, params, wtoi)
   N = len(imgs)
 
   # create output h5 file
@@ -189,6 +195,8 @@ def main(params):
   dset = f.create_dataset("images", (n_frame,3,256,256), dtype='uint8') # space for resized images
   f.create_dataset("image_start_ix", dtype='uint32', data=image_start_ix)
   f.create_dataset("image_end_ix", dtype='uint32', data=image_end_ix)
+  f.create_dataset("category", dtype='uint32', data=category)
+  f.create_dataset("id", dtype='uint32', data=vid)
   for i,img in enumerate(imgs):
     # load the image
     count = 0
@@ -242,7 +250,7 @@ if __name__ == "__main__":
   # options
   parser.add_argument('--max_length', default=16, type=int, help='max length of a caption, in number of words. captions longer than this get clipped.')
   parser.add_argument('--images_root', default='', help='root location in which images are stored, to be prepended to file_path in input json')
-  parser.add_argument('--word_count_threshold', default=5, type=int, help='only words that occur more than this number of times will be put in vocab')
+  parser.add_argument('--word_count_threshold', default=2, type=int, help='only words that occur more than this number of times will be put in vocab')
 
   args = parser.parse_args()
   params = vars(args) # convert to ordinary dict
