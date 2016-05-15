@@ -37,7 +37,7 @@ function net_utils.build_cnn(cnn, opt)
 
   cnn_part:add(nn.Linear(4096,encoding_size))
   cnn_part:add(backend.ReLU(true))
-  cnn_part:add(nn.Max(1))
+  cnn_part:add(nn.Mean(1))
   cnn_part:add(nn.Reshape(1,encoding_size))
   return cnn_part
 end

@@ -120,6 +120,7 @@ if string.len(opt.start_from) > 0 then
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
   protos.crit = nn.LanguageModelCriterion() -- not in checkpoints, create manually
   protos.expander = nn.FeatExpander(opt.seq_per_img) -- not in checkpoints, create manually
+  protos.cate_loss = nn.ClassNLLCriterion()
 else
   -- create protos from scratch
   -- intialize language model
@@ -156,13 +157,13 @@ end
 -- Keep CNN params separate in case we want to try to get fancy with different optims on LM/CNN
 local params, grad_params = protos.lm:getParameters()
 local cnn_params, cnn_grad_params = protos.cnn:getParameters()
-local cparams, cgrad_params = protos.cate:getParameters()
+local mt_params, mt_grad_params = protos.cate:getParameters()
 print('total number of parameters in LM: ', params:nElement())
 print('total number of parameters in CNN: ', cnn_params:nElement())
-print('total number of parameters in MT: ', cparams:nElement())
+print('total number of parameters in MT: ', mt_params:nElement())
 assert(params:nElement() == grad_params:nElement())
 assert(cnn_params:nElement() == cnn_grad_params:nElement())
-assert(cparams:nElement() == cgrad_params:nElement())
+assert(mt_params:nElement() == mt_grad_params:nElement())
 
 -- construct thin module clones that share parameters with the actual
 -- modules. These thin module will have no intermediates and will be used
@@ -292,7 +293,7 @@ local function lossFun()
     local dfeats = protos.expander:backward(feats, dexpanded_feats)
     local dx = protos.cnn:backward(data.images, dfeats)
   end
-  if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt then
+  if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt_after then
     local dx = protos.cnn:backward(data.images, dcate)
   end
 
@@ -319,6 +320,7 @@ end
 local loss0
 local optim_state = {}
 local cnn_optim_state = {}
+local mt_optim_state = {}
 local loss_history = {}
 local val_lang_stats_history = {}
 local val_loss_history = {}
@@ -370,7 +372,7 @@ while true do
         -- include the protos (which have weights) and save to file
         local save_protos = {}
         save_protos.lm = thin_lm -- these are shared clones, and point to correct param storage
-        save_protos.catem = thin_cate -- these are shared clones, and point to correct param storage
+        save_protos.cate = thin_cate -- these are shared clones, and point to correct param storage
         save_protos.cnn = thin_cnn
         checkpoint.protos = save_protos
         -- also include the vocabulary mapping so that we can use the checkpoint 
@@ -421,6 +423,15 @@ while true do
       error('bad option for opt.cnn_optim')
     end
   end
+    if opt.cnn_optim == 'sgd' then
+      sgd(mt_params, mt_grad_params, cnn_learning_rate*0.1)
+    elseif opt.cnn_optim == 'sgdm' then
+      sgdm(mt_params, mt_grad_params, cnn_learning_rate*0.1, opt.cnn_optim_alpha, mt_optim_state)
+    elseif opt.cnn_optim == 'adam' then
+      adam(mt_params, mt_grad_params, cnn_learning_rate*0.1, opt.cnn_optim_alpha, opt.cnn_optim_beta, opt.optim_epsilon, mt_optim_state)
+    else
+      error('bad option for opt.cnn_optim')
+    end
 
   -- stopping criterions
   iter = iter + 1
