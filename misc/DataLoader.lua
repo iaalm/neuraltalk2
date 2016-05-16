@@ -101,7 +101,7 @@ function DataLoader:getBatch(opt)
   self.iterators[split] = ri_next
   local start_ix = self.image_start_ix[ix]
   local end_ix = self.image_end_ix[ix]
-  local category = self.category[ix]
+  local category = self.category[ix] + 1
   -- pick an index of the datapoint to load next
   local down_rate = 30
   local img_batch_raw = torch.ByteTensor(math.ceil((end_ix - start_ix + down_rate - 1)/down_rate), 3, 256, 256)
