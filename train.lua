@@ -103,7 +103,6 @@ local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json}
 local function CategoryModel()
   local model = nn.Sequential()
   model:add(nn.Linear(opt.input_encoding_size,opt.mt_size))
-  model:add(nn.LogSoftMax())
   return model
 end
 
@@ -120,7 +119,7 @@ if string.len(opt.start_from) > 0 then
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
   protos.crit = nn.LanguageModelCriterion() -- not in checkpoints, create manually
   protos.expander = nn.FeatExpander(opt.seq_per_img) -- not in checkpoints, create manually
-  protos.cate_loss = nn.ClassNLLCriterion()
+  protos.cate_loss = nn.CrossEntropyCriterion()
 else
   -- create protos from scratch
   -- intialize language model
@@ -145,7 +144,7 @@ else
   -- criterion for the language model
   protos.crit = nn.LanguageModelCriterion()
   protos.cate = CategoryModel()
-  protos.cate_loss = nn.ClassNLLCriterion()
+  protos.cate_loss = nn.CrossEntropyCriterion()
 end
 
 -- ship everything to GPU, maybe
