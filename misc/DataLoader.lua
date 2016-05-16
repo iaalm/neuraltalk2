@@ -102,12 +102,8 @@ function DataLoader:getBatch(opt)
   local label_batch = torch.LongTensor(1 * seq_per_img, self.seq_length)
   local rnd = math.ceil(math.random() * (end_ix - start_ix - batch_size)) + start_ix
   --for i=start_ix,end_ix-1 do
-  for i=1,batch_size do
-    -- fetch the image from h5
-    local img = self.h5_file:read('/images'):partial({rnd+i,rnd+i},{1,self.num_channels},
+  img_batch_raw = self.h5_file:read('/images'):partial({rnd+1,rnd+batch_size},{1,self.num_channels},
                             {1,self.max_image_size},{1,self.max_image_size})
-    img_batch_raw[i] = img
-  end
 
     -- fetch the sequence labels
     local ix1 = self.label_start_ix[ix]
