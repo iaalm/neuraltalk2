@@ -3,7 +3,7 @@ local net_utils = {}
 
 -- take a raw CNN from Caffe and perform surgery. Note: VGG-16 SPECIFIC!
 function net_utils.build_cnn(cnn, opt)
-  local layer_num = utils.getopt(opt, 'layer_num', 38)
+  local layer_num = utils.getopt(opt, 'layer_num', 39)
   local backend = utils.getopt(opt, 'backend', 'cudnn')
   local encoding_size = utils.getopt(opt, 'encoding_size', 512)
   
@@ -35,8 +35,6 @@ function net_utils.build_cnn(cnn, opt)
     cnn_part:add(layer)
   end
 
-  cnn_part:add(nn.Linear(4096,encoding_size))
-  cnn_part:add(backend.ReLU(true))
   cnn_part:add(nn.Mean(1))
   cnn_part:add(nn.Reshape(1,encoding_size))
   return cnn_part
