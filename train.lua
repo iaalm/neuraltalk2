@@ -181,9 +181,9 @@ local thin_cate = protos.cate:clone()
 thin_lm.core:share(protos.lm.core, 'weight', 'bias') -- TODO: we are assuming that LM has specific members! figure out clean way to get rid of, not modular.
 thin_lm.lookup_table:share(protos.lm.lookup_table, 'weight', 'bias')
 local thin_cnn = protos.cnn:clone()
-thin_cnn.get(1):share(protos.cnn.get(1), 'weight', 'bias')
+thin_cnn:get(1):share(protos.cnn:get(1), 'weight', 'bias')
 -- sanitize all modules of gradient storage so that we dont save big checkpoints
-net_utils.sanitize_gradients(thin_cnn.get(1))
+net_utils.sanitize_gradients(thin_cnn:get(1))
 net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
