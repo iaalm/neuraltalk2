@@ -120,7 +120,7 @@ if string.len(opt.start_from) > 0 then
   print('initializing weights from ' .. opt.start_from)
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
-  net_utils.unsanitize_gradients(protos.cnn)
+  net_utils.unsanitize_gradients(protos.cnn.get(1))
   net_utils.unsanitize_gradients(protos.cate)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
@@ -180,9 +180,10 @@ local thin_lm = protos.lm:clone()
 local thin_cate = protos.cate:clone()
 thin_lm.core:share(protos.lm.core, 'weight', 'bias') -- TODO: we are assuming that LM has specific members! figure out clean way to get rid of, not modular.
 thin_lm.lookup_table:share(protos.lm.lookup_table, 'weight', 'bias')
-local thin_cnn = protos.cnn
+local thin_cnn = protos.cnn:clone()
+thin_cnn.get(1):share(protos.cnn.get(1), 'weight', 'bias')
 -- sanitize all modules of gradient storage so that we dont save big checkpoints
-net_utils.sanitize_gradients(thin_cnn)
+net_utils.sanitize_gradients(thin_cnn.get(1))
 net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
@@ -301,7 +302,7 @@ local function lossFun()
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dpfeats = protos.expander:backward(pfeats, dexpanded_feats)
-    local dfeats = protos.tp:backword(feats, dpfeats)
+    local dfeats = protos.tp:backward(feats, dpfeats)
     local dx = protos.cnn:backward(data.images, dfeats)
   end
   if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt_after then
