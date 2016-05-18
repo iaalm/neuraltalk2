@@ -31,15 +31,14 @@ function net_utils.build_cnn(cnn, opt)
       layer.weight[{ {}, 1, {}, {} }]:copy(w[{ {}, 3, {}, {} }])
       layer.weight[{ {}, 3, {}, {} }]:copy(w[{ {}, 1, {}, {} }])
     end
-
     cnn_part:add(layer)
   end
 
   cnn_part:add(nn.Linear(4096,encoding_size))
   cnn_part:add(backend.ReLU(true))
-  cnn_part:add(nn.Mean(1))
-  cnn_part:add(nn.Reshape(1,encoding_size))
-  return cnn_part
+  pcnn_part = nn.DataParallelTable(1)
+  pcnn_part:add(cnn_part,{1,2})
+  return pcnn_part
 end
 
 -- takes a batch of images and preprocesses them
