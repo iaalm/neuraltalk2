@@ -113,7 +113,7 @@ if string.len(opt.start_from) > 0 then
   print('initializing weights from ' .. opt.start_from)
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
-  net_utils.unsanitize_gradients(protos.cnn)
+  net_utils.unsanitize_gradients(protos.cnn.get(1))
   net_utils.unsanitize_gradients(protos.cate)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
@@ -290,7 +290,12 @@ local function lossFun()
   local dcate = protos.cate:backward(feats, dcate_loss)
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
+<<<<<<< HEAD
     local dfeats = protos.expander:backward(feats, dexpanded_feats)
+=======
+    local dpfeats = protos.expander:backward(pfeats, dexpanded_feats)
+    local dfeats = protos.tp:backward(feats, dpfeats)
+>>>>>>> ffcbafa... FIX: paralleldatatable
     local dx = protos.cnn:backward(data.images, dfeats)
   end
   if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt_after then
