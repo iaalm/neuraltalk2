@@ -105,6 +105,13 @@ local function CategoryModel()
   model:add(nn.Linear(opt.input_encoding_size,opt.mt_size))
   return model
 end
+local function time_pool()
+  local model = nn.Sequential()
+  model:add(nn.Mean(1))
+  model:add(nn.Reshape(1, opt.input_encoding_size))
+  return model
+end
+ 
 
 local protos = {}
 
@@ -120,6 +127,7 @@ if string.len(opt.start_from) > 0 then
   protos.crit = nn.LanguageModelCriterion() -- not in checkpoints, create manually
   protos.expander = nn.FeatExpander(opt.seq_per_img) -- not in checkpoints, create manually
   protos.cate_loss = nn.CrossEntropyCriterion()
+  protos.tp = time_pool()
 else
   -- create protos from scratch
   -- intialize language model
@@ -145,6 +153,7 @@ else
   protos.crit = nn.LanguageModelCriterion()
   protos.cate = CategoryModel()
   protos.cate_loss = nn.CrossEntropyCriterion()
+  protos.tp = time_pool()
 end
 
 -- ship everything to GPU, maybe
@@ -209,14 +218,15 @@ local function eval_split(split, evalopt)
 
     -- forward the model to get loss
     local feats = protos.cnn:forward(data.images)
-    local expanded_feats = protos.expander:forward(feats)
+    local pfeats = protos.tp:forward(feats)
+    local expanded_feats = protos.expander:forward(pfeats)
     local logprobs = protos.lm:forward{expanded_feats, data.labels}
     local loss = protos.crit:forward(logprobs, data.labels)
     loss_sum = loss_sum + loss
     loss_evals = loss_evals + 1
 
     -- forward the model to also get generated samples for each image
-    local seq = protos.lm:sample(feats)
+    local seq = protos.lm:sample(pfeats)
     local sents = net_utils.decode_sequence(vocab, seq)
     for k=1,#sents do
       local entry = {image_id = data.infos[k].id, caption = sents[k]}
@@ -270,8 +280,9 @@ local function lossFun()
 
   -- forward the ConvNet on images (most work happens here)
   local feats = protos.cnn:forward(data.images)
+  local pfeats = protos.tp:forward(feats)
   -- we have to expand out image features, once for each sentence
-  local expanded_feats = protos.expander:forward(feats)
+  local expanded_feats = protos.expander:forward(pfeats)
   -- forward the language model
   local logprobs = protos.lm:forward{expanded_feats, data.labels}
   -- forward the language model criterion
@@ -290,12 +301,8 @@ local function lossFun()
   local dcate = protos.cate:backward(feats, dcate_loss)
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
-<<<<<<< HEAD
-    local dfeats = protos.expander:backward(feats, dexpanded_feats)
-=======
     local dpfeats = protos.expander:backward(pfeats, dexpanded_feats)
     local dfeats = protos.tp:backward(feats, dpfeats)
->>>>>>> ffcbafa... FIX: paralleldatatable
     local dx = protos.cnn:backward(data.images, dfeats)
   end
   if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt_after then
