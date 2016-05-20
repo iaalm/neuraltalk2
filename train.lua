@@ -68,6 +68,7 @@ cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-num_lstm', 1, 'how many LSTM layers')
 cmd:option('-mt_size', 20, 'how many LSTM layers')
+cmd:option('-cnn_from', '', 'load cnn from')
 
 cmd:text()
 
@@ -111,7 +112,6 @@ local function time_pool()
   model:add(nn.Reshape(1, opt.input_encoding_size))
   return model
 end
- 
 
 local protos = {}
 
@@ -120,7 +120,7 @@ if string.len(opt.start_from) > 0 then
   print('initializing weights from ' .. opt.start_from)
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
-  net_utils.unsanitize_gradients(protos.cnn.get(1))
+  net_utils.unsanitize_gradients(protos.cnn)
   net_utils.unsanitize_gradients(protos.cate)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
@@ -143,8 +143,17 @@ else
   -- initialize the ConvNet
   local cnn_backend = opt.backend
   if opt.gpuid == -1 then cnn_backend = 'nn' end -- override to nn if gpu is disabled
-  local cnn_raw = loadcaffe.load(opt.cnn_proto, opt.cnn_model, cnn_backend)
-  protos.cnn = net_utils.build_cnn(cnn_raw, {encoding_size = opt.input_encoding_size, backend = cnn_backend})
+  if opt.cnn_from == '' then
+    local cnn_raw = loadcaffe.load(opt.cnn_proto, opt.cnn_model, cnn_backend)
+    protos.cnn = net_utils.build_cnn(cnn_raw, {encoding_size = opt.input_encoding_size, backend = cnn_backend})
+  else
+    local cnn_raw = torch.load(opt.cnn_from).protos.cnn
+    --local cnn_p = nn.DataParallelTable(1)
+    --cnn_p:add(cnn_raw,{1,2})
+    local cnn_p = cnn_raw
+    protos.cnn = cnn_p
+  net_utils.unsanitize_gradients(protos.cnn)
+  end
   -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy 
   -- where we have multiple captions per one image in a batch. This is done for efficiency
   -- because doing a CNN forward pass is expensive. We expand out the CNN features for each sentence
@@ -181,9 +190,11 @@ local thin_cate = protos.cate:clone()
 thin_lm.core:share(protos.lm.core, 'weight', 'bias') -- TODO: we are assuming that LM has specific members! figure out clean way to get rid of, not modular.
 thin_lm.lookup_table:share(protos.lm.lookup_table, 'weight', 'bias')
 local thin_cnn = protos.cnn:clone()
-thin_cnn:get(1):share(protos.cnn:get(1), 'weight', 'bias')
+--thin_cnn:get(1):share(protos.cnn:get(1), 'weight', 'bias')
+thin_cnn:share(protos.cnn, 'weight', 'bias')
 -- sanitize all modules of gradient storage so that we dont save big checkpoints
-net_utils.sanitize_gradients(thin_cnn:get(1))
+--net_utils.sanitize_gradients(thin_cnn:get(1))
+net_utils.sanitize_gradients(thin_cnn)
 net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
@@ -287,7 +298,7 @@ local function lossFun()
   local logprobs = protos.lm:forward{expanded_feats, data.labels}
   -- forward the language model criterion
   local loss = protos.crit:forward(logprobs, data.labels)
-  local cate_res = protos.cate:forward(feats)
+  local cate_res = protos.cate:forward(pfeats)
   local cate_loss = protos.cate_loss:forward(cate_res, data.category)
   
   -----------------------------------------------------------------------------
@@ -298,7 +309,7 @@ local function lossFun()
   -- backprop language model
   local dexpanded_feats, ddummy = unpack(protos.lm:backward({expanded_feats, data.labels}, dlogprobs))
   local dcate_loss = protos.cate_loss:backward(cate_res, data.category)
-  local dcate = protos.cate:backward(feats, dcate_loss)
+  local dcate = protos.cate:backward(pfeats, dcate_loss)
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dpfeats = protos.expander:backward(pfeats, dexpanded_feats)
