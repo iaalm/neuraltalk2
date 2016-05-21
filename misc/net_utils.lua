@@ -36,9 +36,7 @@ function net_utils.build_cnn(cnn, opt)
 
   cnn_part:add(nn.Linear(4096,encoding_size))
   cnn_part:add(backend.ReLU(true))
-  pcnn_part = nn.DataParallelTable(1)
-  pcnn_part:add(cnn_part,{1,2})
-  return pcnn_part
+  return cnn_part
 end
 
 -- takes a batch of images and preprocesses them

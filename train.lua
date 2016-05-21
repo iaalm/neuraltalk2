@@ -115,12 +115,13 @@ end
 
 local protos = {}
 
+local cnn_raw
 if string.len(opt.start_from) > 0 then
   -- load protos from file
   print('initializing weights from ' .. opt.start_from)
   local loaded_checkpoint = torch.load(opt.start_from)
   protos = loaded_checkpoint.protos
-  net_utils.unsanitize_gradients(protos.cnn:get(1))
+  net_utils.unsanitize_gradients(protos.cnn)
   net_utils.unsanitize_gradients(protos.cate)
   local lm_modules = protos.lm:getModulesList()
   for k,v in pairs(lm_modules) do net_utils.unsanitize_gradients(v) end
@@ -147,12 +148,12 @@ else
     local cnn_raw = loadcaffe.load(opt.cnn_proto, opt.cnn_model, cnn_backend)
     protos.cnn = net_utils.build_cnn(cnn_raw, {encoding_size = opt.input_encoding_size, backend = cnn_backend})
   else
-    local cnn_raw = torch.load(opt.cnn_from).protos.cnn
-    local cnn_p = nn.DataParallelTable(1)
-    cnn_p:add(cnn_raw,{1,2})
-    protos.cnn = cnn_p
-    net_utils.unsanitize_gradients(protos.cnn:get(1))
+    protos.cnn = torch.load(opt.cnn_from).protos.cnn
+    net_utils.unsanitize_gradients(protos.cnn)
   end
+  local cnn_raw = protos.cnn
+  protos.cnn = nn.DataParallelTable(1)
+  protos.cnn:add(cnn_raw,{1,2})
   -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy 
   -- where we have multiple captions per one image in a batch. This is done for efficiency
   -- because doing a CNN forward pass is expensive. We expand out the CNN features for each sentence
@@ -188,10 +189,10 @@ local thin_lm = protos.lm:clone()
 local thin_cate = protos.cate:clone()
 thin_lm.core:share(protos.lm.core, 'weight', 'bias') -- TODO: we are assuming that LM has specific members! figure out clean way to get rid of, not modular.
 thin_lm.lookup_table:share(protos.lm.lookup_table, 'weight', 'bias')
-local thin_cnn = protos.cnn:clone()
-thin_cnn:get(1):share(protos.cnn:get(1), 'weight', 'bias')
+local thin_cnn = protos.cnn:get(1):clone()
+thin_cnn:share(protos.cnn:get(1), 'weight', 'bias')
 -- sanitize all modules of gradient storage so that we dont save big checkpoints
-net_utils.sanitize_gradients(thin_cnn:get(1))
+net_utils.sanitize_gradients(thin_cnn)
 net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
