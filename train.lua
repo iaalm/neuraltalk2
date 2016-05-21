@@ -151,7 +151,7 @@ else
     local cnn_p = nn.DataParallelTable(1)
     cnn_p:add(cnn_raw,{1,2})
     protos.cnn = cnn_p
-  net_utils.unsanitize_gradients(protos.cnn)
+    net_utils.unsanitize_gradients(protos.cnn:get(1))
   end
   -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy 
   -- where we have multiple captions per one image in a batch. This is done for efficiency
