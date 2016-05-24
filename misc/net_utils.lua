@@ -6,6 +6,8 @@ function net_utils.build_cnn(cnn, opt)
   local layer_num = utils.getopt(opt, 'layer_num', 38)
   local backend = utils.getopt(opt, 'backend', 'cudnn')
   local encoding_size = utils.getopt(opt, 'encoding_size', 512)
+  local batch_size = utils.getopt(opt, 'batch_size', 4)
+  local video_size = utils.getopt(opt, 'video_size', 4)
   
   if backend == 'cudnn' then
     require 'cudnn'
@@ -19,6 +21,7 @@ function net_utils.build_cnn(cnn, opt)
 
   -- copy over the first layer_num layers of the CNN
   local cnn_part = nn.Sequential()
+  cnn_part:add(nn.Reshape(batch_size*video_size, 3, 224, 224))
   for i = 1, layer_num do
     local layer = cnn:get(i)
 
@@ -35,7 +38,49 @@ function net_utils.build_cnn(cnn, opt)
   end
 
   cnn_part:add(nn.Linear(4096,encoding_size))
-  cnn_part:add(backend.ReLU(true))
+  cnn_part:add(nn.Reshape(video_size,batch_size,encoding_size))
+  cnn_part:add(nn.Mean(1))
+  --cnn_part:add(nn.Reshape(batch_size,encoding_size))
+  return cnn_part
+end
+function net_utils.build_of_cnn(cnn, opt)
+  local layer_num = utils.getopt(opt, 'layer_num', 38)
+  local backend = utils.getopt(opt, 'backend', 'cudnn')
+  local encoding_size = utils.getopt(opt, 'encoding_size', 512)
+  local batch_size = utils.getopt(opt, 'batch_size', 4)
+  local of_size = utils.getopt(opt, 'of_size', 10)
+  
+  if backend == 'cudnn' then
+    require 'cudnn'
+    backend = cudnn
+  elseif backend == 'nn' then
+    require 'nn'
+    backend = nn
+  else
+    error(string.format('Unrecognized backend "%s"', backend))
+  end
+
+  -- copy over the first layer_num layers of the CNN
+  local cnn_part = nn.Sequential()
+  cnn_part:add(nn.Reshape(batch_size, of_size * 2, 224, 224))
+  for i = 1, layer_num do
+    local layer = cnn:get(i)
+
+    if i == 1 then
+      -- convert kernels in first conv layer into RGB format instead of BGR,
+      -- which is the order in which it was trained in Caffe
+      local w = layer.weight:clone()
+      -- swap weights to R and B channels
+      print('converting first layer conv filters from BGR to RGB...')
+      layer.weight[{ {}, 1, {}, {} }]:copy(w[{ {}, 3, {}, {} }])
+      layer.weight[{ {}, 3, {}, {} }]:copy(w[{ {}, 1, {}, {} }])
+    end
+    cnn_part:add(layer)
+  end
+
+  cnn_part:add(nn.Linear(4096,encoding_size))
+  --cnn_part:add(nn.Reshape(video_size,encoding_size))
+  --cnn_part:add(nn.Reshape(batch_size,encoding_size))
   return cnn_part
 end
 

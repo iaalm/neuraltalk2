@@ -1,4 +1,5 @@
 require 'hdf5'
+require 'image'
 local utils = require 'misc.utils'
 
 local DataLoader = torch.class('DataLoader')
@@ -15,6 +16,8 @@ function DataLoader:__init(opt)
   -- open the hdf5 file
   print('DataLoader loading h5 file: ', opt.h5_file)
   self.h5_file = hdf5.open(opt.h5_file, 'r')
+
+  self.of_dir = opt.of_dir
   
   -- extract image size from dataset
   local images_size = self.h5_file:read('/images'):dataspaceSize()
@@ -36,6 +39,7 @@ function DataLoader:__init(opt)
   self.image_start_ix = self.h5_file:read('/image_start_ix'):all()
   self.image_end_ix = self.h5_file:read('/image_end_ix'):all()
   self.category = self.h5_file:read('/category'):all()
+  self.vid = self.h5_file:read('/id'):all()
   
   -- separate out indexes for each of the provided splits
   self.split_ix = {}
@@ -80,40 +84,50 @@ end
 --]]
 function DataLoader:getBatch(opt)
   local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
-  local batch_size = utils.getopt(opt, 'batch_size', 1) -- how many images get returned at one time (to go through CNN)
-  local seq_per_img = utils.getopt(opt, 'seq_per_img', 5) -- number of sequences to return per image
-  
-  if batch_size ~= 1 then
-    print('video only support batch_size == 1 now.')
-    os.exit(1)
-  end
+  local batch_size = utils.getopt(opt, 'batch_size', 4) -- how many video get returned at one time
+  local video_size = utils.getopt(opt, 'video_size', 4) -- how many images get returned at one video
+  local seq_per_img = utils.getopt(opt, 'seq_per_img', 20) -- number of sequences to return per image
+  local of_size = utils.getopt(opt, 'of_size', 10) -- how many images get returned at one video
 
   local split_ix = self.split_ix[split]
   assert(split_ix, 'split ' .. split .. ' not found.')
-  local ri = self.iterators[split] -- get next index from iterator
-  local ix = split_ix[ri]
-  assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
+
+  -- pick an index of the datapoint to load next
+  local img_batch_raw = torch.ByteTensor(video_size, batch_size, 3, 256, 256)
+  local of_batch = torch.ByteTensor(batch_size, of_size * 2, 224, 224)
+  local label_batch = torch.LongTensor(batch_size * seq_per_img, self.seq_length)
+  local category = torch.LongTensor(batch_size)
   local max_index = #split_ix
   local wrapped = false
   local infos = {}
-  local ri_next = ri + 1 -- increment iterator
-  if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
-  self.iterators[split] = ri_next
-  local start_ix = self.image_start_ix[ix]
-  local end_ix = self.image_end_ix[ix]
-  local category = self.category[ix] + 1
-  -- pick an index of the datapoint to load next
-  local down_rate = 30
-  local img_batch_raw = torch.ByteTensor(math.ceil((end_ix - start_ix + down_rate - 1)/down_rate), 3, 256, 256)
-  local label_batch = torch.LongTensor(batch_size * seq_per_img, self.seq_length)
-  for i=start_ix,end_ix-1 do
-    -- fetch the image from h5
-    if (i-start_ix) % down_rate == 0 then
-    local img = self.h5_file:read('/images'):partial({i,i},{1,self.num_channels},
-                            {1,self.max_image_size},{1,self.max_image_size})
-    img_batch_raw[math.ceil((i-start_ix)/down_rate)+1] = img
+  for i=1,batch_size do
+
+    local ri = self.iterators[split] -- get next index from iterator
+    local ri_next = ri + 1 -- increment iterator
+    if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
+    self.iterators[split] = ri_next
+    ix = split_ix[ri]
+    assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
+    local istart = self.image_start_ix[ix]
+    local iend = self.image_end_ix[ix]
+    category[i] = self.category[ix] + 1
+    for j=1,video_size do
+  --TODO: random get by gen another ix
+      local localix = math.ceil(math.random(iend - istart))
+      local lix = istart + localix
+      -- fetch the image from h5
+      local img = self.h5_file:read('/images'):partial({lix,lix},{1,self.num_channels},
+                              {1,self.max_image_size},{1,self.max_image_size})
+      img_batch_raw[j][i] = img
     end
-  end
+    local lix = math.ceil(math.random(iend - istart - of_size - 1))
+    for j=1,of_size do
+      local localix = lix + j
+--print(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1))
+      of_batch[i][j] = image.scale(image.load(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
+      of_batch[i][j+of_size] = image.scale(image.load(string.format('%s/video%d/flow_y_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
+    end
+    
 
     -- fetch the sequence labels
     local ix1 = self.label_start_ix[ix]
@@ -133,7 +147,7 @@ function DataLoader:getBatch(opt)
       local ixl = torch.random(ix1, ix2 - seq_per_img + 1) -- generates integer in the range
       seq = self.h5_file:read('/labels'):partial({ixl, ixl+seq_per_img-1}, {1,self.seq_length})
     end
-    local il = 1
+    local il = (i-1)*seq_per_img+1
     label_batch[{ {il,il+seq_per_img-1} }] = seq
 
     -- and record associated info as well
@@ -141,13 +155,15 @@ function DataLoader:getBatch(opt)
     info_struct.id = self.info.images[ix].id
     info_struct.file_path = self.info.images[ix].file_path
     table.insert(infos, info_struct)
+  end
 
   local data = {}
   data.images = img_batch_raw
+  data.of = of_batch
   data.labels = label_batch:transpose(1,2):contiguous() -- note: make label sequences go down as columns
   data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
   data.infos = infos
-  data.category = category
+  data.category = category:contiguous()
   return data
 end
 
