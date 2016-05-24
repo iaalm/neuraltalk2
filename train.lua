@@ -239,6 +239,7 @@ local function eval_split(split, evalopt)
 
     -- fetch a batch of data
     local data = loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = split, seq_per_img = opt.seq_per_img}
+    if data.bounds.wrapped then break end -- the split ran out of data, lets break out
     data.images = data.images:reshape(opt.batch_size*opt.img_per_video,3,256,256)
     data.images = net_utils.prepro(data.images, false, opt.gpuid >= 0) -- preprocess in place, and don't augment
     n = n + data.images:size(1)
@@ -270,7 +271,6 @@ local function eval_split(split, evalopt)
     end
 
     if loss_evals % 10 == 0 then collectgarbage() end
-    if data.bounds.wrapped then break end -- the split ran out of data, lets break out
     if ix0 >= val_images_use and val_images_use >= 0 then break end -- we've used enough images
   end
 
