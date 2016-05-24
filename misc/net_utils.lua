@@ -8,7 +8,7 @@ function net_utils.build_cnn(cnn, opt)
   local encoding_size = utils.getopt(opt, 'encoding_size', 512)
   local batch_size = utils.getopt(opt, 'batch_size', 4)
   local video_size = utils.getopt(opt, 'video_size', 4)
-  
+
   if backend == 'cudnn' then
     require 'cudnn'
     backend = cudnn
@@ -49,7 +49,7 @@ function net_utils.build_of_cnn(cnn, opt)
   local encoding_size = utils.getopt(opt, 'encoding_size', 512)
   local batch_size = utils.getopt(opt, 'batch_size', 4)
   local of_size = utils.getopt(opt, 'of_size', 10)
-  
+
   if backend == 'cudnn' then
     require 'cudnn'
     backend = cudnn
@@ -92,18 +92,32 @@ function net_utils.prepro(imgs, data_augment, on_gpu)
 
   local h,w = imgs:size(3), imgs:size(4)
   local cnn_input_size = 224
+  local multiscale_size = torch.FloatTensor{1, 0.875, 0.75, 0.66}
 
   -- cropping data augmentation, if needed
-  if h > cnn_input_size or w > cnn_input_size then 
+  if h > cnn_input_size or w > cnn_input_size then
     local xoff, yoff
     if data_augment then
-      xoff, yoff = torch.random(w-cnn_input_size), torch.random(h-cnn_input_size)
+      cnn_multiscale_size = multiscale_size[index_chosen[1]]*cnn_input_size, multiscale_size[index_chosen[1]]*cnn_input_size
+      xoff, yoff = torch.random(w-cnn_multiscale_size), torch.random(h-cnn_multiscale_size)
+      index_chosen = torch.randperm(4);
     else
       -- sample the center
       xoff, yoff = math.ceil((w-cnn_input_size)/2), math.ceil((h-cnn_input_size)/2)
     end
     -- crop.
-    imgs = imgs[{ {}, {}, {yoff,yoff+cnn_input_size-1}, {xoff,xoff+cnn_input_size-1} }]
+
+    --TODO: read image and rescale
+    local channels = imgs:size(1)
+    local imgs_multicrop = torch.FloatTensor({imgs:size()})
+    for i = 1, channels do
+      local img_ori = imgs[{{i}, {}, {}, {}}]
+      local img_crop = img_ori[{{}, {yoff,yoff+cnn_multiscale_size-1}, {xoff,xoff+cnn_multiscale_size-1}}]
+      local img_resize = image.resize(img_ori, cnn_input_size, cnn_input_size)
+      imgs_multicrop[{{i}, {}, {}, {}}] = img_resize
+    end
+    imgs = imgs_multicrop
+
   end
 
   -- ship to gpu or convert from byte to float
@@ -205,7 +219,7 @@ function net_utils.unsanitize_gradients(net)
 end
 
 --[[
-take a LongTensor of size DxN with elements 1..vocab_size+1 
+take a LongTensor of size DxN with elements 1..vocab_size+1
 (where last dimension is END token), and decode it into table of raw text sentences.
 each column is a sequence. ix_to_word gives the mapping to strings, as a table
 --]]

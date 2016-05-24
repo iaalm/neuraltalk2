@@ -5,20 +5,20 @@ local utils = require 'misc.utils'
 local DataLoader = torch.class('DataLoader')
 
 function DataLoader:__init(opt)
-  
+
   -- load the json file which contains additional information about the dataset
   print('DataLoader loading json file: ', opt.json_file)
   self.info = utils.read_json(opt.json_file)
   self.ix_to_word = self.info.ix_to_word
   self.vocab_size = utils.count_keys(self.ix_to_word)
   print('vocab size is ' .. self.vocab_size)
-  
+
   -- open the hdf5 file
   print('DataLoader loading h5 file: ', opt.h5_file)
   self.h5_file = hdf5.open(opt.h5_file, 'r')
 
   self.of_dir = opt.of_dir
-  
+
   -- extract image size from dataset
   local images_size = self.h5_file:read('/images'):dataspaceSize()
   assert(#images_size == 4, '/images should be a 4D tensor')
@@ -26,7 +26,7 @@ function DataLoader:__init(opt)
   self.num_images = images_size[1]
   self.num_channels = images_size[2]
   self.max_image_size = images_size[3]
-  print(string.format('read %d images of size %dx%dx%d', self.num_images, 
+  print(string.format('read %d images of size %dx%dx%d', self.num_images,
             self.num_channels, self.max_image_size, self.max_image_size))
 
   -- load in the sequence data
@@ -40,7 +40,7 @@ function DataLoader:__init(opt)
   self.image_end_ix = self.h5_file:read('/image_end_ix'):all()
   self.category = self.h5_file:read('/category'):all()
   self.vid = self.h5_file:read('/id'):all()
-  
+
   -- separate out indexes for each of the provided splits
   self.split_ix = {}
   self.iterators = {}
@@ -124,10 +124,10 @@ function DataLoader:getBatch(opt)
     for j=1,of_size do
       local localix = lix + j
 --print(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1))
-      of_batch[i][j] = image.scale(image.load(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
-      of_batch[i][j+of_size] = image.scale(image.load(string.format('%s/video%d/flow_y_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
+      of_batch[i][j] = image.scale(image.load(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),340,256):reshape(340,256)
+      of_batch[i][j+of_size] = image.scale(image.load(string.format('%s/video%d/flow_y_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),340,256):reshape(340,256)
     end
-    
+
 
     -- fetch the sequence labels
     local ix1 = self.label_start_ix[ix]
@@ -166,4 +166,3 @@ function DataLoader:getBatch(opt)
   data.category = category:contiguous()
   return data
 end
-

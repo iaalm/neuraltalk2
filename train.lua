@@ -113,7 +113,7 @@ local function CategoryModel()
   return model
 end
 local function build_multicnn(img_cnn, optflow_cnn)
-  local mcnn = nn.ParallelTable() -- output on 3*encoding 
+  local mcnn = nn.ParallelTable() -- output on 3*encoding
   mcnn:add(img_cnn)
   mcnn:add(optflow_cnn)
   local scnn = nn.Sequential()
@@ -168,7 +168,7 @@ else
   protos.cnn = cnn_raw
   --protos.cnn = nn.DataParallelTable(1)
   --protos.cnn:add(cnn_raw,{1,2})
-  -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy 
+  -- initialize a special FeatExpander module that "corrects" for the batch number discrepancy
   -- where we have multiple captions per one image in a batch. This is done for efficiency
   -- because doing a CNN forward pass is expensive. We expand out the CNN features for each sentence
   protos.expander = nn.FeatExpander(opt.seq_per_img)
@@ -183,7 +183,7 @@ if opt.gpuid >= 0 then
   for k,v in pairs(protos) do v:cuda() end
 end
 
--- flatten and prepare all model parameters to a single vector. 
+-- flatten and prepare all model parameters to a single vector.
 -- Keep CNN params separate in case we want to try to get fancy with different optims on LM/CNN
 local params, grad_params = protos.lm:getParameters()
 local cnn_params, cnn_grad_params = protos.cnn:getParameters()
@@ -213,7 +213,7 @@ net_utils.sanitize_gradients(thin_cate)
 local lm_modules = thin_lm:getModulesList()
 for k,v in pairs(lm_modules) do net_utils.sanitize_gradients(v) end
 
--- create clones and ensure parameter sharing. we have to do this 
+-- create clones and ensure parameter sharing. we have to do this
 -- all the way here at the end because calls such as :cuda() and
 -- :getParameters() reshuffle memory around.
 protos.lm:createClones()
@@ -298,11 +298,13 @@ local function lossFun()
   -----------------------------------------------------------------------------
   -- Forward pass
   -----------------------------------------------------------------------------
-  -- get batch of data  
+  -- get batch of data
   local data = loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = 'train', seq_per_img = opt.seq_per_img}
   data.images = data.images:reshape(opt.batch_size*opt.img_per_video,3,256,256)
   data.images = net_utils.prepro(data.images, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
-  -- data.images: Nx3x224x224 
+  data.of = net_utils.prepro(data.of, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
+
+  -- data.images: Nx3x224x224
   -- data.seq: LxM where L is sequence length upper bound, and M = N*seq_per_img
 
   -- forward the ConvNet on images (most work happens here)
@@ -316,7 +318,7 @@ local function lossFun()
   local cate_res = protos.cate:forward(feats)
 --ugly cuda
   local cate_loss = protos.cate_loss:forward(cate_res, data.category:cuda())
-  
+
   -----------------------------------------------------------------------------
   -- Backward pass
   -----------------------------------------------------------------------------
@@ -363,7 +365,7 @@ local loss_history = {}
 local val_lang_stats_history = {}
 local val_loss_history = {}
 local best_score
-while true do  
+while true do
 
   -- eval loss/gradient
   local losses = lossFun()
@@ -414,7 +416,7 @@ while true do
         save_protos.img_cnn = thin_img_cnn
         save_protos.of_cnn = thin_of_cnn
         checkpoint.protos = save_protos
-        -- also include the vocabulary mapping so that we can use the checkpoint 
+        -- also include the vocabulary mapping so that we can use the checkpoint
         -- alone to run on arbitrary images without the data loader
         checkpoint.vocab = loader:getVocab()
         torch.save(checkpoint_path .. '.t7', checkpoint)
