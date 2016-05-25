@@ -119,7 +119,7 @@ local function build_multicnn(img_cnn, optflow_cnn)
   local scnn = nn.Sequential()
   scnn:add(mcnn)
   scnn:add(nn.CAddTable())
-  scnn:add(nn.ReLU())
+  scnn:add(cudnn.ReLU())
   return scnn
 end
 
