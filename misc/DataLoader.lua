@@ -124,8 +124,8 @@ function DataLoader:getBatch(opt)
     for j=1,of_size do
       local localix = lix + j
 --print(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1))
-      of_batch[i][j] = image.scale(image.load(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
-      of_batch[i][j+of_size] = image.scale(image.load(string.format('%s/video%d/flow_y_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
+      of_batch[i][j*2-1] = image.scale(image.load(string.format('%s/video%d/flow_x_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
+      of_batch[i][j*2] = image.scale(image.load(string.format('%s/video%d/flow_y_%04d.jpg',self.of_dir,self.vid[ix],localix+1),1,'byte'),224,224):reshape(224,224)
     end
     
 
