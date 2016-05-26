@@ -38,6 +38,7 @@ function net_utils.build_cnn(cnn, opt)
   end
 
   cnn_part:add(nn.Linear(4096,encoding_size))
+  cnn_part:add(backend.ReLU(true))
   cnn_part:add(nn.Reshape(video_size,batch_size,encoding_size))
   cnn_part:add(nn.Mean(1))
   --cnn_part:add(nn.Reshape(batch_size,encoding_size))
@@ -62,7 +63,7 @@ function net_utils.build_of_cnn(cnn, opt)
 
   -- copy over the first layer_num layers of the CNN
   local cnn_part = nn.Sequential()
-  cnn_part:add(nn.Reshape(batch_size, of_size * 2, 224, 224))
+  --cnn_part:add(nn.Reshape(batch_size, of_size * 2, 224, 224))
   for i = 1, layer_num do
     local layer = cnn:get(i)
 
@@ -79,6 +80,7 @@ function net_utils.build_of_cnn(cnn, opt)
   end
 
   cnn_part:add(nn.Linear(4096,encoding_size))
+  cnn_part:add(backend.ReLU(true))
   --cnn_part:add(nn.Reshape(video_size,encoding_size))
   --cnn_part:add(nn.Reshape(batch_size,encoding_size))
   return cnn_part

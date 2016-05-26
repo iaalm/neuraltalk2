@@ -120,8 +120,7 @@ local function build_multicnn(img_cnn, optflow_cnn)
   mcnn:add(optflow_cnn)
   local scnn = nn.Sequential()
   scnn:add(mcnn)
-  scnn:add(nn.CAddTable())
-  scnn:add(cudnn.ReLU())
+  scnn:add(nn.JoinTable(2))
   return scnn
 end
 
@@ -157,10 +156,10 @@ else
   local cnn_backend = opt.backend
   if opt.gpuid == -1 then cnn_backend = 'nn' end -- override to nn if gpu is disabled
   local of_cnn_raw = loadcaffe.load(opt.of_cnn_proto, opt.of_cnn_model, cnn_backend)
-  protos.of_cnn = net_utils.build_of_cnn(of_cnn_raw, {batch_size = opt.batch_size, video_size = opt.of_size, encoding_size = opt.input_encoding_size, backend = cnn_backend})
+  protos.of_cnn = net_utils.build_of_cnn(of_cnn_raw, {batch_size = opt.batch_size, video_size = opt.of_size, encoding_size = math.ceil(opt.input_encoding_size/2), backend = cnn_backend})
   if opt.cnn_from == '' then
     local img_cnn_raw = loadcaffe.load(opt.img_cnn_proto, opt.img_cnn_model, cnn_backend)
-    protos.img_cnn = net_utils.build_cnn(img_cnn_raw, {batch_size = opt.batch_size, video_size = opt.img_per_video, encoding_size = opt.input_encoding_size, backend = cnn_backend})
+    protos.img_cnn = net_utils.build_cnn(img_cnn_raw, {batch_size = opt.batch_size, video_size = opt.img_per_video, encoding_size = math.ceil(opt.input_encoding_size/2), backend = cnn_backend})
   else
     protos.img_cnn = torch.load(opt.cnn_from).protos.cnn
     net_utils.unsanitize_gradients(protos.img_cnn)
@@ -308,11 +307,12 @@ local function lossFun()
   donkey:addjob(function() return donkey_loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = 'train', seq_per_img = opt.seq_per_img} end,function(d) prefetch_data = d end)
   data.images = data.images:reshape(opt.batch_size*opt.img_per_video,3,256,256)
   data.images = net_utils.prepro(data.images, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
+  data.of = data.of:cuda()
   -- data.images: Nx3x224x224 
   -- data.seq: LxM where L is sequence length upper bound, and M = N*seq_per_img
 
   -- forward the ConvNet on images (most work happens here)
-  local feats = protos.cnn:forward{data.images, data.of:cuda()}
+  local feats = protos.cnn:forward{data.images, data.of}
   -- we have to expand out image features, once for each sentence
   local expanded_feats = protos.expander:forward(feats)
   -- forward the language model
@@ -335,7 +335,7 @@ local function lossFun()
   -- backprop the CNN, but only if we are finetuning
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
     local dfeats = protos.expander:backward(feats, dexpanded_feats)
-    local dx = protos.cnn:backward({data.images,data.images,data.images}, dfeats)
+    local dx = protos.cnn:backward({data.images,data.of}, dfeats)
   end
   if opt.finetune_mt_after >= 0 and iter >= opt.finetune_mt_after then
     local dx = protos.cnn:backward(data.images, dcate)
