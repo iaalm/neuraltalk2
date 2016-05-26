@@ -10,6 +10,8 @@ require 'misc.DataLoader'
 require 'misc.LanguageModel'
 local net_utils = require 'misc.net_utils'
 require 'misc.optim_updates'
+local threads = require 'threads'
+require 'hdf5'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -30,7 +32,7 @@ cmd:option('-of_cnn_proto','model/vgg_16_flow_train_val_fast.prototxt','path to 
 cmd:option('-of_cnn_model','model/vgg_16_action_flow_pretrain.caffemodel','path to CNN model file containing the weights, Caffe format. Note this MUST be a VGGNet-16 right now.')
 cmd:option('-of_dir', '', 'dir of of')
 cmd:option('-of_size', 10, 'of batch size')
-cmd:option('-start_from', '', 'path to a model checkpoint to initialize model weights from. Empty = don\'t')
+cmd:option('-start_from', '', 'path to a model checkpoint to initialize model weights from. Empty = do not')
 
 -- Model settings
 cmd:option('-rnn_size',512,'size of the rnn in number of hidden nodes in each layer')
@@ -281,7 +283,9 @@ local function eval_split(split, evalopt)
 
   return loss_sum/loss_evals, predictions, lang_stats
 end
+donkey = threads(1,function()  require 'misc.DataLoader' donkey_loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, of_dir = opt.of_dir} end)
 
+prefetch_data = nil
 -------------------------------------------------------------------------------
 -- Loss function
 -------------------------------------------------------------------------------
@@ -299,7 +303,9 @@ local function lossFun()
   -- Forward pass
   -----------------------------------------------------------------------------
   -- get batch of data  
-  local data = loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = 'train', seq_per_img = opt.seq_per_img}
+  donkey:synchronize()
+  local data = prefetch_data
+  donkey:addjob(function() return donkey_loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = 'train', seq_per_img = opt.seq_per_img} end,function(d) prefetch_data = d end)
   data.images = data.images:reshape(opt.batch_size*opt.img_per_video,3,256,256)
   data.images = net_utils.prepro(data.images, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
   -- data.images: Nx3x224x224 
@@ -363,6 +369,7 @@ local loss_history = {}
 local val_lang_stats_history = {}
 local val_loss_history = {}
 local best_score
+donkey:addjob(function() return donkey_loader:getBatch{batch_size = opt.batch_size, video_size = opt.img_per_video, of_size = opt.of_size, split = 'train', seq_per_img = opt.seq_per_img} end,function(d) prefetch_data = d end)
 while true do  
 
   -- eval loss/gradient
