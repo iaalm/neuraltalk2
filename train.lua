@@ -243,7 +243,12 @@ local function lossFun()
   -- data.seq: LxM where L is sequence length upper bound, and M = N*seq_per_img
 
   -- forward the ConvNet on images (most work happens here)
-  local feats = protos.cnn:forward(data.images)
+  local feats
+  if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
+    feats = torch.randn(opt.batch_size, opt.input_encoding_size)
+  else
+    feats = protos.cnn:forward(data.images)
+  end
   -- we have to expand out image features, once for each sentence
   local expanded_feats = protos.expander:forward(feats)
   -- forward the language model
