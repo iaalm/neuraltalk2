@@ -238,16 +238,16 @@ local function lossFun()
   -----------------------------------------------------------------------------
   -- get batch of data  
   local data = loader:getBatch{batch_size = opt.batch_size, split = 'train', seq_per_img = opt.seq_per_img}
-  data.images = net_utils.prepro(data.images, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
-  -- data.images: Nx3x224x224 
-  -- data.seq: LxM where L is sequence length upper bound, and M = N*seq_per_img
-
-  -- forward the ConvNet on images (most work happens here)
   local feats
   if opt.finetune_cnn_after >= 0 and iter >= opt.finetune_cnn_after then
-    feats = torch.randn(opt.batch_size, opt.input_encoding_size)
-  else
+    data.images = net_utils.prepro(data.images, true, opt.gpuid >= 0) -- preprocess in place, do data augmentation
+    -- data.images: Nx3x224x224 
+    -- data.seq: LxM where L is sequence length upper bound, and M = N*seq_per_img
+
+    -- forward the ConvNet on images (most work happens here)
     feats = protos.cnn:forward(data.images)
+  else
+    feats = torch.randn(opt.batch_size, opt.input_encoding_size)
   end
   -- we have to expand out image features, once for each sentence
   local expanded_feats = protos.expander:forward(feats)
